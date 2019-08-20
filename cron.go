@@ -41,17 +41,19 @@ type Logger interface {
 type Entry struct {
 	// The schedule on which this job should be run.
 	Schedule Schedule
-
+	
 	// The next time the job will run. This is the zero time if Cron has not been
 	// started or this entry's schedule is unsatisfiable
 	Next time.Time
-
+	
 	// The last time this job was run. This is the zero time if the job has never
 	// been run.
 	Prev time.Time
-
+	
 	// The Job to run.
 	Job Job
+	
+	JobName string
 }
 
 // byTime is a wrapper for sorting the entry array by time
@@ -97,31 +99,32 @@ type FuncJob func()
 func (f FuncJob) Run() { f() }
 
 // AddFunc adds a func to the Cron to be run on the given schedule.
-func (c *Cron) AddFunc(spec string, cmd func()) error {
-	return c.AddJob(spec, FuncJob(cmd))
+func (c *Cron) AddFunc(jobName ,spec string, cmd func()) error {
+	return c.AddJob(jobName, spec, FuncJob(cmd))
 }
 
 // AddJob adds a Job to the Cron to be run on the given schedule.
-func (c *Cron) AddJob(spec string, cmd Job) error {
+func (c *Cron) AddJob(jobName, spec string, cmd Job) error {
 	schedule, err := Parse(spec)
 	if err != nil {
 		return err
 	}
-	c.Schedule(schedule, cmd)
+	c.Schedule(jobName, schedule, cmd)
 	return nil
 }
 
 // Schedule adds a Job to the Cron to be run on the given schedule.
-func (c *Cron) Schedule(schedule Schedule, cmd Job) {
+func (c *Cron) Schedule(jobName string, schedule Schedule, cmd Job) {
 	entry := &Entry{
 		Schedule: schedule,
 		Job:      cmd,
+		JobName: jobName,
 	}
 	if !c.running {
 		c.entries = append(c.entries, entry)
 		return
 	}
-
+	
 	c.add <- entry
 }
 
@@ -178,11 +181,11 @@ func (c *Cron) run() {
 	for _, entry := range c.entries {
 		entry.Next = entry.Schedule.Next(now)
 	}
-
+	
 	for {
 		// Determine the next entry to run.
 		sort.Sort(byTime(c.entries))
-
+		
 		var timer *time.Timer
 		if len(c.entries) == 0 || c.entries[0].Next.IsZero() {
 			// If there are no entries yet, just sleep - it still handles new entries
@@ -191,7 +194,7 @@ func (c *Cron) run() {
 		} else {
 			timer = time.NewTimer(c.entries[0].Next.Sub(now))
 		}
-
+		
 		for {
 			select {
 			case now = <-timer.C:
@@ -205,22 +208,22 @@ func (c *Cron) run() {
 					e.Prev = e.Next
 					e.Next = e.Schedule.Next(now)
 				}
-
+			
 			case newEntry := <-c.add:
 				timer.Stop()
 				now = c.now()
 				newEntry.Next = newEntry.Schedule.Next(now)
 				c.entries = append(c.entries, newEntry)
-
+			
 			case <-c.snapshot:
 				c.snapshot <- c.entrySnapshot()
 				continue
-
+			
 			case <-c.stop:
 				timer.Stop()
 				return
 			}
-
+			
 			break
 		}
 	}
@@ -253,6 +256,7 @@ func (c *Cron) entrySnapshot() []*Entry {
 			Next:     e.Next,
 			Prev:     e.Prev,
 			Job:      e.Job,
+			JobName: e.JobName,
 		})
 	}
 	return entries
@@ -262,3 +266,4 @@ func (c *Cron) entrySnapshot() []*Entry {
 func (c *Cron) now() time.Time {
 	return time.Now().In(c.location)
 }
+
