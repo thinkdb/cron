@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"fmt"
 	"log"
 	"runtime"
 	"sort"
@@ -53,6 +54,7 @@ type Entry struct {
 	// The Job to run.
 	Job Job
 	
+	// The Job Name.
 	JobName string
 }
 
@@ -105,6 +107,12 @@ func (c *Cron) AddFunc(jobName ,spec string, cmd func()) error {
 
 // AddJob adds a Job to the Cron to be run on the given schedule.
 func (c *Cron) AddJob(jobName, spec string, cmd Job) error {
+	for _, e := range c.entries {
+		if e.JobName == jobName {
+			return fmt.Errorf("job[%s] already exists", jobName)
+		}
+	}
+	
 	schedule, err := Parse(spec)
 	if err != nil {
 		return err
@@ -245,6 +253,15 @@ func (c *Cron) Stop() {
 	}
 	c.stop <- struct{}{}
 	c.running = false
+}
+
+// Stop the job. does not stop any jobs already running
+func (c *Cron) StopOne(jobName string) {
+	for i, e := range c.entries {
+		if e.JobName == jobName {
+			c.entries = append(c.entries[:i], c.entries[i+1:]...)
+		}
+	}
 }
 
 // entrySnapshot returns a copy of the current cron entry list.
