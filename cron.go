@@ -255,11 +255,15 @@ func (c *Cron) Stop() {
 	c.running = false
 }
 
-// Stop the job. does not stop any jobs already running
-func (c *Cron) StopOne(jobName string) {
+// RemoveJob removes a Job from the Cron based on name.
+func (c *Cron) RemoveJob(jobName string) {
+	if !c.running {
+		return
+	}
 	for i, e := range c.entries {
 		if e.JobName == jobName {
 			c.entries = append(c.entries[:i], c.entries[i+1:]...)
+			return
 		}
 	}
 }
